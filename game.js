@@ -153,13 +153,18 @@ async function finish(){
   await sleep(900);phase='bet';showArea('betArea');renderBets();
   if(st.bal<MIN)gameOver();
 }
-function gameOver(){modal(`<h2>💸 Out of chips</h2><p>You played ${st.stats.hands} hands. Biggest win: ${money(st.stats.big)}.</p><button class="btn gold big" id="go">Reset to $500</button>`);$('go').onclick=()=>{resetAll();closeModal()}}
+function gameOver(){modal(`<h2>💸 Out of chips</h2><p>You played ${st.stats.hands} hands. Biggest win: ${money(st.stats.big)}.</p>`,'<button class="okbtn" id="go">Reset to $500</button>',()=>{if(st.bal<MIN)resetAll()});$('go').onclick=()=>closeModal()}
 function resetAll(){const t=st.tut,m=st.muted;st=fresh();st.tut=t;st.muted=m;for(const k in bets)bets[k]=0;hands=[];dealer=[];$('sideRes').innerHTML='';$('last').textContent='';renderDealer();renderHands();renderBets();save()}
 
 // ---- sheets ----
-function sheet(h){const s=$('sheet');s.innerHTML='<button class="ib x" id="sx">✕</button>'+h;s.classList.remove('hidden');$('sx').onclick=()=>s.classList.add('hidden')}
-function modal(h){$('mCard').innerHTML=h;$('modal').classList.remove('hidden')}
-function closeModal(){$('modal').classList.add('hidden')}
+let sheetBg=document.createElement('div');sheetBg.id='sheetBg';sheetBg.className='hidden';document.body.appendChild(sheetBg);
+function closeSheet(){$('sheet').classList.add('hidden');sheetBg.classList.add('hidden')}
+sheetBg.addEventListener('click',closeSheet);
+function sheet(h){const s=$('sheet');s.innerHTML='<button class="ib x" id="sx" aria-label="Close">✕</button>'+h;s.classList.remove('hidden');sheetBg.classList.remove('hidden');$('sx').onclick=closeSheet}
+let onModalClose=null;
+function modal(h,foot,onClose){onModalClose=onClose||null;$('mCard').innerHTML='<button class="mx" id="mx" aria-label="Close">✕</button><div class="mbody">'+h+'</div>'+(foot?'<div class="mfoot">'+foot+'</div>':'');$('modal').classList.remove('hidden');$('mx').onclick=()=>closeModal()}
+function closeModal(){$('modal').classList.add('hidden');$('mCard').innerHTML='';const f=onModalClose;onModalClose=null;if(f)f()}
+$('modal').addEventListener('click',e=>{if(e.target.id==='modal')closeModal()});
 $('bHelp').onclick=()=>sheet(`<h3>Rules</h3><ul><li>6-deck shoe, reshuffled at ~75% penetration.</li><li>Blackjack pays 3:2. Dealer ${st.set.h17?'hits':'stands on'} soft 17 (change in ⚙️).</li><li>Double on any first two cards${st.set.das?' (also after split)':''}. Split up to ${st.set.splits+1} hands. Split aces get one card each${st.set.rsa?' (resplit aces allowed)':''}. 21 after a split is not a blackjack.</li><li>Late surrender ${st.set.surr?'allowed':'off'} (get half back). Insurance/even money ${st.set.ins?'offered':'off'} (insurance pays 2:1).</li><li>Dealer peeks for blackjack with an Ace or 10 up.</li></ul>
 <h3>Side bets</h3><p>Settled right after the deal, using your first two cards and the dealer's upcard only.</p>
 <table><tr><th>Bet</th><th>Pays</th></tr><tr><td>Suited Pair: your 2 cards same rank &amp; suit</td><td>${PAY.pair}:1</td></tr>
@@ -174,7 +179,7 @@ $('bHist').onclick=()=>{const s=st.stats;sheet(`<h3>Session stats</h3><table>
 <tr><td>Net profit/loss</td><td class="${s.net>=0?'pos':'neg'}">${s.net>=0?'+':''}${money(s.net)}</td></tr></table>
 <h3>Last 25 rounds</h3><table><tr><th>#</th><th>Result</th><th>Net</th></tr>${st.hist.map(h=>`<tr><td>${h.n}</td><td>${h.desc} <small>(${h.p} vs ${h.d})</small></td><td class="${h.net>=0?'pos':'neg'}">${h.net>=0?'+':''}${money(h.net)}</td></tr>`).join('')||'<tr><td colspan=3>No rounds yet</td></tr>'}</table>
 <button class="btn red big" id="rst" style="width:100%;margin-top:12px">Reset to $500</button>`);
-  $('rst').onclick=()=>{if(confirm('Reset balance to $500 and clear stats?')){resetAll();$('sheet').classList.add('hidden')}}};
+  $('rst').onclick=()=>{if(confirm('Reset balance to $500 and clear stats?')){resetAll();closeSheet()}}};
 $('bSet').onclick=()=>{const s=st.set;sheet(`<h3>Table rules</h3>
 <label class="set">Dealer on soft 17<select id="sH17"><option value="0">Stands (S17)</option><option value="1" ${s.h17?'selected':''}>Hits (H17)</option></select></label>
 <label class="set">Max splits<select id="sSp"><option value="1">1 (2 hands)</option><option value="2" ${s.splits==2?'selected':''}>2</option><option value="3" ${s.splits==3?'selected':''}>3 (4 hands)</option></select></label>
@@ -184,11 +189,11 @@ $('bSet').onclick=()=>{const s=st.set;sheet(`<h3>Table rules</h3>
 <label class="set">Insurance / even money<input type="checkbox" id="sIns" ${s.ins?'checked':''}></label>
 <button class="btn alt" id="sTut" style="width:100%;margin-top:12px">Show tutorial</button>`);
   const up=()=>{s.h17=$('sH17').value==='1';s.splits=+$('sSp').value;s.rsa=$('sRsa').checked;s.das=$('sDas').checked;s.surr=$('sSurr').checked;s.ins=$('sIns').checked;save();renderBets()};
-  ['sH17','sSp','sRsa','sDas','sSurr','sIns'].forEach(i=>$(i).onchange=up);$('sTut').onclick=()=>{$('sheet').classList.add('hidden');tutorial()}};
+  ['sH17','sSp','sRsa','sDas','sSurr','sIns'].forEach(i=>$(i).onchange=up);$('sTut').onclick=()=>{closeSheet();tutorial()}};
 $('bMute').onclick=()=>{st.muted=!st.muted;$('bMute').textContent=st.muted?'🔇':'🔊';save()};
 function tutorial(){modal(`<h2>♠ Welcome to Suited Blackjack</h2><p>You start with <b>$500</b>. Tap a betting spot, then tap chips to bet. Hit <b>Deal</b>.</p>
-<ul><li><b>Suited Pair</b>: your first 2 cards are identical (e.g. 7♥ 7♥). ${PAY.pair}:1</li><li><b>Suited Ties</b>: a suited pair plus the dealer's upcard in the same suit. ${PAY.ties}:1</li><li><b>Match Dealer</b>: your cards match the dealer's upcard rank (and suit for more). Up to ${PAY.match.ss}:1</li><li><b>Suited BJ</b>: blackjack in one suit. ${PAY.sbj}:1</li></ul><p>Side bets pay right after the deal. Full paytable under <b>?</b>.</p><button class="btn gold big" id="tOk" style="width:100%">Let's play</button>`);
-  $('tOk').onclick=()=>{st.tut=true;save();closeModal()}}
+<ul><li><b>Suited Pair</b>: your first 2 cards are identical (e.g. 7♥ 7♥). ${PAY.pair}:1</li><li><b>Suited Ties</b>: a suited pair plus the dealer's upcard in the same suit. ${PAY.ties}:1</li><li><b>Match Dealer</b>: your cards match the dealer's upcard rank (and suit for more). Up to ${PAY.match.ss}:1</li><li><b>Suited BJ</b>: blackjack in one suit. ${PAY.sbj}:1</li></ul><p>Side bets pay right after the deal. Full paytable under <b>?</b>.</p>`,'<button class="okbtn" id="tOk">Got it, let\'s play</button>',()=>{st.tut=true;save()});
+  $('tOk').onclick=()=>closeModal()}
 
 // ---- fx ----
 function chipFly(from,to){const a=from.getBoundingClientRect(),b=to.getBoundingClientRect();const e=document.createElement('div');e.className='fly';e.style.background=getComputedStyle(from).backgroundColor;
