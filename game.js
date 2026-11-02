@@ -4,7 +4,7 @@ const $=id=>document.getElementById(id), KEY='suitedBJ.v1', START=500, MIN=5;
 const SUITS=['♠','♥','♦','♣'], RANKS=['','A','2','3','4','5','6','7','8','9','10','J','Q','K'];
 // Payouts (X to 1). Tune here.
 const PAY={pair:25,ties:50,sbj:10,match:{ss:100,sr:30,rr:8,s:9,r:4}};
-const SIDE_NAMES={pair:'Suited Pair',ties:'Suited Ties',match:'Match Dealer',sbj:'Suited BJ'};
+const SIDE_NAMES={pair:'Suited Pair',ties:'Suited Ties',match:'Perfect Matches',sbj:'Suited BJ'};const SMIN=1,DENOMS=[500,100,50,25,10,5,1];
 const DEF={h17:false,splits:1,rsa:false,das:true,ins:false,surr:true};
 let st=load();
 function load(){try{const o=JSON.parse(localStorage.getItem(KEY));if(o&&typeof o.bal==='number')return Object.assign(fresh(),o,{set:Object.assign({},DEF,o.set)})}catch(e){}return fresh()}
@@ -24,7 +24,7 @@ const totStr=cs=>{const x=total(cs);return x.t>21?'Bust '+x.t:(x.soft&&x.t<21?'s
 // ---- state ----
 let bets={main:0,pair:0,ties:0,match:0,sbj:0}, spot='main', phase='bet', hands=[], dealer=[], active=0, insBet=0, wager=0, ret=0, holeDown=true, busy=false;
 const money=n=>'$'+(Math.round(n*100)/100).toLocaleString(undefined,{maximumFractionDigits:2});
-const sleep=ms=>new Promise(r=>setTimeout(r,FAST?0:ms));let FAST=false;
+const TMAX=1e9;const sleep=ms=>new Promise(r=>setTimeout(r,FAST?0:ms));let FAST=false;
 const betSum=()=>Object.values(bets).reduce((a,b)=>a+b,0);
 
 // ---- rendering ----
@@ -33,28 +33,68 @@ function cardEl(c,down){const e=document.createElement('div');e.className='card'
   e.innerHTML=`<div class="face${red?' red':''}"><div class="tl">${rk}<br>${su}</div><div class="mid">${c.r>10?(['J','Q','K'][c.r-11]+su):su}</div><div class="br">${rk}<br>${su}</div></div><div class="back"></div>`;
   if(c.shown)e.style.animation='none';c.shown=true;return e}
 let wasDown=false;function renderDealer(){const d=$('dealer');d.innerHTML='';dealer.forEach((c,i)=>{const e=cardEl(c,i===1&&holeDown);if(i===1&&!holeDown&&wasDown)e.classList.add('flip');d.appendChild(e)});wasDown=dealer.length>1&&holeDown;
-  $('dTot').textContent=dealer.length?(holeDown?totStr([dealer[0]]):totStr(dealer)):''}
+  fitCards($('dealer'));$('dTot').textContent=dealer.length?(holeDown?totStr([dealer[0]]):totStr(dealer)):''}
 function renderHands(){const h=$('hands');h.innerHTML='';
   hands.forEach((hd,i)=>{const w=document.createElement('div');w.className='hand n'+hands.length+(phase==='play'&&i===active?' act':'');
     const cs=document.createElement('div');cs.className='cards';hd.cards.forEach(c=>cs.appendChild(cardEl(c)));
     w.innerHTML=`<div class="lbl">${hands.length>1?'Hand '+(i+1)+' · ':''}${money(hd.bet)} <span class="tot">${hd.cards.length?totStr(hd.cards):''}</span></div>`;
-    w.appendChild(cs);const r=document.createElement('div');r.className='res';r.textContent=hd.res||'';r.style.color=/Win|Blackjack/.test(hd.res||'')?'#8ef0a6':/Push/.test(hd.res||'')?'#ddd':'#ff9a9a';w.appendChild(r);h.appendChild(w)})}
-function renderBets(){document.querySelectorAll('.spot').forEach(s=>{s.querySelector('b').textContent=money(bets[s.dataset.b]);s.classList.toggle('sel',s.dataset.b===spot)});
-  $('bal').textContent=money(st.bal);$('bDeal').disabled=bets.main<MIN||betSum()>st.bal;
-  $('bRD').disabled=!st.last||st.last.main<MIN||Object.values(st.last).reduce((a,b)=>a+b,0)>st.bal;$('bRebet').disabled=$('bRD').disabled;
+    w.appendChild(cs);const r=document.createElement('div');r.className='res';r.textContent=hd.res||'';r.style.color=/win|Blackjack|Even/i.test(hd.res||'')?'#8ef0a6':/Push/.test(hd.res||'')?'#ddd':'#ff9a9a';w.appendChild(r);h.appendChild(w)});h.querySelectorAll('.cards').forEach(fitCards)}
+// Spread cards edge-to-edge when they fit; otherwise overlap only enough to leave each card's rank/suit corner (>=PIP px) visible.
+function fitCards(cs){const c=[...cs.children];if(!c.length)return;const W=c[0].offsetWidth||74,PIP=W>60?34:26,avail=Math.max(W,cs.clientWidth-8);
+  const step=c.length>1?Math.max(PIP,Math.min(W+6,(avail-W)/(c.length-1))):0;c.forEach((e,i)=>{e.style.marginLeft=i?(step-W)+'px':'0';e.style.zIndex=i+1})}
+addEventListener('resize',()=>document.querySelectorAll('.cards').forEach(fitCards));
+let stacks={main:[],pair:[],ties:[],match:[],sbj:[]},fresh1=null,undoLog=[],selV=5;
+const RM=matchMedia('(prefers-reduced-motion: reduce)').matches;
+function decomp(a){const o=[];for(const d of DENOMS)while(a>=d-1e-9){o.push(d);a-=d}return o.reverse().length?o.sort((x,y)=>y-x):o}
+const sum=a=>a.reduce((x,y)=>x+y,0);
+function renderBets(){document.querySelectorAll('.spot').forEach(sp=>{const k=sp.dataset.b;if(sum(stacks[k])!==bets[k]){stacks[k]=decomp(bets[k]);undoLog=undoLog.filter(u=>u!==k)}
+    const st_=sp.querySelector('.stack'),n=stacks[k].length,show=stacks[k].slice(-10);let h='';show.forEach((v,i)=>{const isNew=fresh1&&fresh1.k===k&&i===show.length-1;h+=`<div class="pc c${v}${isNew?' new':''}" style="bottom:${i*5}px;z-index:${i}"><i>${v}</i></div>`});
+    st_.innerHTML=h;st_.style.setProperty('--h',show.length*5+'px');sp.classList.toggle('has',n>0);sp.querySelector('b').textContent=money(bets[k])});
+  fresh1=null;$('tBet').textContent=money(betSum());
+  $('bal').textContent=money(st.bal);const ok=bets.main>=MIN&&betSum()<=st.bal;$('bDeal').disabled=!ok;
+  $('hint').textContent=bets.main<MIN?'Main bet min $'+MIN+' · side bets $'+SMIN+'+':'Ready — tap Deal';$('hint').className=bets.main<MIN?'':'ok';
+  const L=st.last,ls=L?Object.values(L).reduce((a,b)=>a+b,0):0;$('bRD').disabled=!L||L.main<MIN||ls>st.bal;$('bRebet').disabled=$('bRD').disabled;$('bUndo').disabled=!undoLog.length;
+  document.querySelectorAll('.rack .pc').forEach(c=>c.classList.toggle('sel',+c.dataset.v===selV));
   $('ruleLine').textContent=st.set.h17?'DEALER HITS SOFT 17':'DEALER STANDS ON SOFT 17'}
 function showArea(a){for(const x of ['betArea','actArea','insArea'])$(x).classList.toggle('hidden',x!==a)}
 function banner(txt,cls){const b=$('banner');b.textContent=txt;b.className=cls+' show';clearTimeout(b._t);b._t=setTimeout(()=>b.className='',1700)}
 function toastLast(net){const l=$('last');l.textContent=net>0?'Won '+money(net):net<0?'Lost '+money(-net):'Push';l.className='last '+(net>0?'w':net<0?'l':'')}
 
 // ---- betting ----
-document.querySelectorAll('.spot').forEach(s=>s.onclick=()=>{if(phase!=='bet')return;spot=s.dataset.b;sfx('tick');renderBets()});
-document.querySelectorAll('.chip').forEach(c=>c.onclick=e=>{if(phase!=='bet')return;const v=+c.dataset.v;
-  if(betSum()+v>st.bal){sfx('err');flash('Not enough balance');return}
-  bets[spot]+=v;sfx('chip');vib(8);chipFly(c,document.querySelector('.spot[data-b="'+spot+'"]'));renderBets()});
+function spotEl(k){return document.querySelector('.spot[data-b="'+k+'"]')}
+function nope(k,m){sfx('err');vib(30);flash(m);const e=k&&spotEl(k);if(e){e.classList.remove('shake');void e.offsetWidth;e.classList.add('shake')}}
+function place(k,v,from){if(phase!=='bet')return false;
+  if(betSum()+v>st.bal){nope(k,'Not enough balance');return false}
+  stacks[k].push(v);bets[k]+=v;undoLog.push(k);fresh1={k};renderBets();
+  const top=spotEl(k).querySelector('.pc.new');
+  if(top&&!RM){const d=from?flyChip(v,from,top):0;top.style.animationDelay=d+'ms';setTimeout(()=>sfx('clack'),d+140)}else{if(top)top.classList.remove('new');sfx('clack')}
+  vib(8);return true}
+function unplace(k){if(phase!=='bet'||!stacks[k].length)return;const v=stacks[k].pop();bets[k]-=v;const i=undoLog.lastIndexOf(k);if(i>=0)undoLog.splice(i,1);sfx('tick');renderBets()}
+function flyChip(v,from,to){const a=from,b=to.getBoundingClientRect();const e=document.createElement('div');e.className='pc fly3 c'+v;e.innerHTML='<i>'+v+'</i>';document.body.appendChild(e);
+  const sx=a.x-23,sy=a.y-23,ex=b.left+b.width/2-23,ey=b.top+b.height/2-23,sc=b.width/46;
+  const dur=Math.min(520,280+Math.hypot(ex-sx,ey-sy)*.6);
+  e.animate([{transform:`translate(${sx}px,${sy}px) scale(1)`},{transform:`translate(${(sx+ex)/2}px,${Math.min(sy,ey)-70}px) scale(${1.15})`,offset:.5},{transform:`translate(${ex}px,${ey}px) scale(${sc})`}],{duration:dur,easing:'cubic-bezier(.3,.6,.4,1)'}).onfinish=()=>e.remove();
+  return dur}
+// rack: tap selects, drag places
+document.querySelectorAll('.rack .pc').forEach(c=>{c.addEventListener('pointerdown',e=>{if(phase!=='bet')return;e.preventDefault();const v=+c.dataset.v;const r=c.getBoundingClientRect();
+  let drag=null,x0=e.clientX,y0=e.clientY;try{c.setPointerCapture(e.pointerId)}catch(_){}
+  const mv=ev=>{if(!drag&&Math.hypot(ev.clientX-x0,ev.clientY-y0)>8){drag=document.createElement('div');drag.className='pc drag c'+v;drag.innerHTML='<i>'+v+'</i>';document.body.appendChild(drag);selV=v;renderBets()}
+    if(drag){drag.style.transform=`translate(${ev.clientX-30}px,${ev.clientY-40}px) scale(1.15)`;const sp=hit(ev.clientX,ev.clientY);document.querySelectorAll('.spot.over').forEach(s=>s!==sp&&s.classList.remove('over'));if(sp)sp.classList.add('over')}};
+  const up=ev=>{c.removeEventListener('pointermove',mv);c.removeEventListener('pointerup',up);c.removeEventListener('pointercancel',up);document.querySelectorAll('.spot.over').forEach(s=>s.classList.remove('over'));
+    if(drag){const sp=ev.type==='pointerup'&&hit(ev.clientX,ev.clientY);drag.remove();if(sp)place(sp.dataset.b,v,{x:ev.clientX,y:ev.clientY-10})}
+    else{selV=v;sfx('tick');renderBets()}};
+  c.addEventListener('pointermove',mv);c.addEventListener('pointerup',up);c.addEventListener('pointercancel',up)})});
+function hit(x,y){const e=document.elementFromPoint(x,y),sp=e&&e.closest('.spot');if(sp)return sp;let best=null,bd=1e9;
+  document.querySelectorAll('.spot .ring').forEach(r=>{const b=r.getBoundingClientRect(),d=Math.hypot(x-b.left-b.width/2,y-b.top-b.height/2);if(d<b.width*.62&&d<bd){bd=d;best=r.closest('.spot')}});return best}
+document.querySelectorAll('.spot').forEach(sp=>{const k=sp.dataset.b;let t=null,held=false;
+  sp.querySelector('.minus').addEventListener('click',e=>{e.stopPropagation();unplace(k)});
+  sp.addEventListener('pointerdown',e=>{if(e.target.closest('.minus'))return;held=false;clearTimeout(t);t=setTimeout(()=>{held=true;unplace(k);vib(20)},550)});
+  ['pointerup','pointercancel','pointerleave'].forEach(n=>sp.addEventListener(n,()=>clearTimeout(t)));
+  sp.addEventListener('click',e=>{if(held||e.target.closest('.minus')){held=false;return}const r=document.querySelector('.rack .pc.sel').getBoundingClientRect();place(k,selV,{x:r.left+r.width/2,y:r.top+r.height/2})})});
+$('bUndo').onclick=()=>{if(undoLog.length)unplace(undoLog[undoLog.length-1])};
 $('bClear').onclick=()=>{if(phase!=='bet')return;for(const k in bets)bets[k]=0;sfx('tick');renderBets()};
 $('bX2').onclick=()=>{if(phase!=='bet')return;if(betSum()*2>st.bal||!betSum()){sfx('err');flash('Not enough balance');return}for(const k in bets)bets[k]*=2;sfx('chip');renderBets()};
-$('bMax').onclick=()=>{if(phase!=='bet')return;const other=betSum()-bets.main;bets.main=Math.max(0,Math.floor((st.bal-other)/5)*5);sfx('chip');renderBets()};
+$('bMax').onclick=()=>{if(phase!=='bet')return;const other=betSum()-bets.main,m=Math.floor(st.bal-other);if(m<MIN){nope('main','Not enough balance for $'+MIN+' main bet');return}bets.main=m;sfx('clack');renderBets()};
 $('bRebet').onclick=()=>{if(phase!=='bet'||!st.last)return;bets={...st.last};renderBets()};
 $('bDeal').onclick=()=>deal();
 $('bRD').onclick=()=>{if(!st.last)return;bets={...st.last};renderBets();deal()};
@@ -75,20 +115,21 @@ async function deal(){
   if(up.r===1&&st.set.ins){
     const half=Math.floor(hands[0].bet/2*100)/100;
     if(pBJ){$('insTxt').textContent='Even money? (take 1:1 now)';const ok=await ask();
-      if(ok){holeDown=false;renderDealer();hands[0].res='Even money';payout(hands[0].bet*2);return finish()}}
+      if(ok){holeDown=false;renderDealer();hands[0].res='Even money';hp(hands[0],hands[0].bet*2);return finish()}}
     else if(st.bal>=half){$('insTxt').textContent='Insurance for '+money(half)+'?';const ok=await ask();if(ok){insBet=half;st.bal-=half;wager+=half;renderBets()}}
   }
   if(up.r===1||val(up)===10){
     if(isBJ(dealer)){holeDown=false;sfx('flip');renderDealer();await sleep(400);
       if(insBet){payout(insBet*3);flash('Insurance pays!')}
-      hands[0].res=pBJ?'Push':'Dealer Blackjack';if(pBJ)payout(hands[0].bet);return finish()}
+      hands[0].res=pBJ?'Push':'Dealer Blackjack';if(pBJ)hp(hands[0],hands[0].bet);return finish()}
     else if(insBet){flash('No dealer blackjack, insurance lost')}
   }
-  if(pBJ){holeDown=false;sfx('flip');renderDealer();hands[0].res='Blackjack!';payout(hands[0].bet*2.5);st.stats.bj++;return finish()}
+  if(pBJ){holeDown=false;sfx('flip');renderDealer();hands[0].res='Blackjack!';hp(hands[0],hands[0].bet*2.5);st.stats.bj++;return finish()}
   phase='play';busy=false;showArea('actArea');renderHands();updateActions();
 }
 function ask(){showArea('insArea');return new Promise(r=>{$('iYes').onclick=()=>{showArea(null);r(true)};$('iNo').onclick=()=>{showArea(null);r(false)}})}
 function payout(a){ret+=a;st.bal+=a}
+function hp(h,a){h.ret=(h.ret||0)+a;payout(a)}
 function settleSides(){
   const [a,b]=hands[0].cards, up=dealer[0], out=[];
   const pairS=a.r===b.r&&a.s===b.s;
@@ -100,7 +141,7 @@ function settleSides(){
     else out.push(`<span>${SIDE_NAMES[k]} ✗</span>`)}
   $('sideRes').innerHTML=out.join('');lastSide=res;renderBets();
 }
-let lastSide=null;
+let lastSide=null,lastBanner='';
 function cur(){return hands[active]}
 function canDouble(h){return phase==='play'&&h.cards.length===2&&!h.aces&&st.bal>=h.bet&&(!h.split||st.set.das)}
 function canSplit(h){return phase==='play'&&h.cards.length===2&&val(h.cards[0])===val(h.cards[1])&&hands.length<st.set.splits+1&&st.bal>=h.bet&&(!h.aces||st.set.rsa)}
@@ -115,7 +156,7 @@ $('aSplit').onclick=()=>act(async()=>{const h=cur();if(!canSplit(h))return;st.ba
   h.cards.push(draw());sfx('card');renderHands();await sleep(250);nh.cards.push(draw());sfx('card');renderHands();await sleep(250);
   if(aces){const pairAgain=h=>h.cards[1].r===1&&st.set.rsa&&hands.length<st.set.splits+1;if(!pairAgain(h)){await next()}}
   else if(total(h.cards).t===21)await next()});
-$('aSurr').onclick=()=>act(async()=>{const h=cur();if(!canSurr(h))return;h.res='Surrendered';h.surr=true;payout(h.bet/2);sfx('bust');await next()});
+$('aSurr').onclick=()=>act(async()=>{const h=cur();if(!canSurr(h))return;h.res='Surrendered';h.surr=true;hp(h,h.bet/2);sfx('bust');await next()});
 async function next(){
   // advance; auto-finish split-ace hands
   active++;
@@ -125,13 +166,15 @@ async function next(){
   renderHands();
   if(active>=hands.length)await dealerPlay();else updateActions();
 }
+// busts first, then compare; equal totals push. (BJ handled before play.)
+function outcome(t,dt){if(t>21)return 'Bust';if(dt>21)return 'Dealer busts — You win';if(t>dt)return 'Win';if(t===dt)return 'Push';return 'Lose'}
 async function dealerPlay(){
   phase='dealer';showArea(null);holeDown=false;sfx('flip');renderDealer();renderHands();await sleep(500);
   const live=hands.some(h=>!h.surr&&total(h.cards).t<=21);
   if(live){for(;;){const d=total(dealer);if(d.t<17||(d.t===17&&d.soft&&st.set.h17)){dealer.push(draw());sfx('card');renderDealer();await sleep(450)}else break}}
   const dt=total(dealer).t;
   for(const h of hands){if(h.surr)continue;const t=total(h.cards).t;
-    if(t>21)h.res='Bust';else if(dt>21||t>dt){h.res='Win';payout(h.bet*2)}else if(t===dt){h.res='Push';payout(h.bet)}else h.res='Lose'}
+    h.res=outcome(t,dt);if(h.res!=='Bust'&&h.res!=='Lose')hp(h,h.res==='Push'?h.bet:h.bet*2)}
   finish();
 }
 async function finish(){
@@ -142,10 +185,15 @@ async function finish(){
   st.hist.unshift({n:s.hands,net,desc,p:hands.map(h=>totStr(h.cards)).join(','),d:totStr(dealer),bal:st.bal});st.hist=st.hist.slice(0,25);
   st.bal=Math.max(0,Math.round(st.bal*100)/100);save();
   const bj=hands.some(h=>h.res==='Blackjack!');
+  // Banner reflects the MAIN hand(s) only; side bets are reported separately.
+  const mBet=hands.reduce((a,h)=>a+h.bet,0),mRet=hands.reduce((a,h)=>a+(h.ret||0),0),dBust=total(dealer).t>21&&hands.some(h=>/Dealer busts/.test(h.res||''));
+  const sideTxt=net!==mRet-mBet?' (net '+(net>=0?'+':'−')+money(Math.abs(net))+')':'';
   if(bj){banner('BLACKJACK!','bj');sfx('bj');vib([30,50,30,50,60]);chipShower()}
-  else if(net>0){banner('YOU WIN '+money(net),'win');sfx('win');vib([20,40,20]);chipShower()}
-  else if(net<0){banner(desc.includes('Bust')&&hands.length===1?'BUST':'DEALER WINS','lose');sfx('lose')}
-  else banner('PUSH','push');
+  else if(dBust&&mRet>mBet){banner('DEALER BUSTS — YOU WIN','win');sfx('win');vib([20,40,20]);chipShower()}
+  else if(mRet>mBet){banner('YOU WIN '+money(mRet-mBet),'win');sfx('win');vib([20,40,20]);chipShower()}
+  else if(mRet<mBet){banner(hands.length===1&&hands[0].res==='Bust'?'BUST':hands.length===1&&hands[0].surr?'SURRENDERED':'DEALER WINS','lose');sfx('lose')}
+  else {banner('PUSH','push');sfx('tick')}
+  lastBanner=$('banner').textContent+sideTxt;
   toastLast(net);
   for(const k in bets)if(bets[k]>0&&false)bets[k]=0;
   // keep bets for rebet but cap to balance
@@ -154,7 +202,7 @@ async function finish(){
   if(st.bal<MIN)gameOver();
 }
 function gameOver(){modal(`<h2>💸 Out of chips</h2><p>You played ${st.stats.hands} hands. Biggest win: ${money(st.stats.big)}.</p>`,'<button class="okbtn" id="go">Reset to $500</button>',()=>{if(st.bal<MIN)resetAll()});$('go').onclick=()=>closeModal()}
-function resetAll(){const t=st.tut,m=st.muted;st=fresh();st.tut=t;st.muted=m;for(const k in bets)bets[k]=0;hands=[];dealer=[];$('sideRes').innerHTML='';$('last').textContent='';renderDealer();renderHands();renderBets();save()}
+function resetAll(){undoLog=[];const t=st.tut,m=st.muted;st=fresh();st.tut=t;st.muted=m;for(const k in bets)bets[k]=0;hands=[];dealer=[];$('sideRes').innerHTML='';$('last').textContent='';renderDealer();renderHands();renderBets();save()}
 
 // ---- sheets ----
 let sheetBg=document.createElement('div');sheetBg.id='sheetBg';sheetBg.className='hidden';document.body.appendChild(sheetBg);
@@ -170,9 +218,9 @@ $('bHelp').onclick=()=>sheet(`<h3>Rules</h3><ul><li>6-deck shoe, reshuffled at ~
 <table><tr><th>Bet</th><th>Pays</th></tr><tr><td>Suited Pair: your 2 cards same rank &amp; suit</td><td>${PAY.pair}:1</td></tr>
 <tr><td>Suited Ties: suited pair AND dealer upcard same suit</td><td>${PAY.ties}:1</td></tr>
 <tr><td>Suited Blackjack: blackjack with both cards same suit (paid on top of 3:2)</td><td>${PAY.sbj}:1</td></tr></table>
-<h3>Match the Dealer</h3><p>Each of your 2 cards is compared to the dealer upcard. Suited match = same rank and suit, rank match = same rank only. Best tier pays:</p>
+<h3>Perfect Matches (Match the Dealer)</h3><p>Each of your 2 cards is compared to the dealer upcard. Suited match = same rank and suit, rank match = same rank only. Best tier pays:</p>
 <table><tr><td>2 suited matches</td><td>${PAY.match.ss}:1</td></tr><tr><td>1 suited + 1 rank match</td><td>${PAY.match.sr}:1</td></tr><tr><td>1 suited match</td><td>${PAY.match.s}:1</td></tr><tr><td>2 rank matches</td><td>${PAY.match.rr}:1</td></tr><tr><td>1 rank match</td><td>${PAY.match.r}:1</td></tr></table>
-<p>Tap a betting spot to select it, then tap chips. Main bet minimum $${MIN}.</p>`);
+<p>Pick a chip, then tap or drag it onto a spot. Main bet minimum $${MIN}; side bets $${SMIN} minimum in $1 steps. Equal totals push; dealer bust pays 1:1.</p>`);
 $('bHist').onclick=()=>{const s=st.stats;sheet(`<h3>Session stats</h3><table>
 <tr><td>Balance</td><td>${money(st.bal)}</td></tr><tr><td>Hands played</td><td>${s.hands}</td></tr><tr><td>Wins / Losses / Pushes</td><td>${s.w} / ${s.l} / ${s.p}</td></tr>
 <tr><td>Blackjacks</td><td>${s.bj}</td></tr><tr><td>Biggest win</td><td>${money(s.big)}</td></tr><tr><td>Current streak</td><td>${s.streak>0?s.streak+' W':s.streak<0?(-s.streak)+' L':'-'}</td></tr>
@@ -191,8 +239,8 @@ $('bSet').onclick=()=>{const s=st.set;sheet(`<h3>Table rules</h3>
   const up=()=>{s.h17=$('sH17').value==='1';s.splits=+$('sSp').value;s.rsa=$('sRsa').checked;s.das=$('sDas').checked;s.surr=$('sSurr').checked;s.ins=$('sIns').checked;save();renderBets()};
   ['sH17','sSp','sRsa','sDas','sSurr','sIns'].forEach(i=>$(i).onchange=up);$('sTut').onclick=()=>{closeSheet();tutorial()}};
 $('bMute').onclick=()=>{st.muted=!st.muted;$('bMute').textContent=st.muted?'🔇':'🔊';save()};
-function tutorial(){modal(`<h2>♠ Welcome to Suited Blackjack</h2><p>You start with <b>$500</b>. Tap a betting spot, then tap chips to bet. Hit <b>Deal</b>.</p>
-<ul><li><b>Suited Pair</b>: your first 2 cards are identical (e.g. 7♥ 7♥). ${PAY.pair}:1</li><li><b>Suited Ties</b>: a suited pair plus the dealer's upcard in the same suit. ${PAY.ties}:1</li><li><b>Match Dealer</b>: your cards match the dealer's upcard rank (and suit for more). Up to ${PAY.match.ss}:1</li><li><b>Suited BJ</b>: blackjack in one suit. ${PAY.sbj}:1</li></ul><p>Side bets pay right after the deal. Full paytable under <b>?</b>.</p>`,'<button class="okbtn" id="tOk">Got it, let\'s play</button>',()=>{st.tut=true;save()});
+function tutorial(){modal(`<h2>♠ Welcome to Suited Blackjack</h2><p>You start with <b>$500</b>. Pick a chip from the rack, then <b>tap or drag</b> it onto the <b>BET</b> circle — watch it drop onto the stack. Side bets sit <b>left</b> (Perfect Matches, Suited Pair) and <b>right</b> (Suited Ties, Suited BJ) of the main bet. Main bet min <b>$5</b>, side bets from <b>$1</b>. Hold a spot or tap <b>−</b> to remove a chip. Then hit <b>Deal</b>.</p>
+<ul><li><b>Suited Pair</b>: your first 2 cards are identical (e.g. 7♥ 7♥). ${PAY.pair}:1</li><li><b>Suited Ties</b>: a suited pair plus the dealer's upcard in the same suit. ${PAY.ties}:1</li><li><b>Perfect Matches</b> (Match the Dealer): your cards match the dealer's upcard rank (and suit for more). Up to ${PAY.match.ss}:1</li><li><b>Suited BJ</b>: blackjack in one suit. ${PAY.sbj}:1</li></ul><p>Side bets pay right after the deal. Full paytable under <b>?</b>.</p>`,'<button class="okbtn" id="tOk">Got it, let\'s play</button>',()=>{st.tut=true;save()});
   $('tOk').onclick=()=>closeModal()}
 
 // ---- fx ----
@@ -207,7 +255,7 @@ function tone(f,d,type='sine',v=.12,delay=0,slide=0){if(st.muted)return;try{AC=A
   const t=AC.currentTime+delay,o=AC.createOscillator(),g=AC.createGain();o.type=type;o.frequency.setValueAtTime(f,t);if(slide)o.frequency.exponentialRampToValueAtTime(slide,t+d);g.gain.setValueAtTime(v,t);g.gain.exponentialRampToValueAtTime(.001,t+d);o.connect(g).connect(AC.destination);o.start(t);o.stop(t+d)}catch(e){}}
 function noise(d,v=.1){if(st.muted)return;try{AC=AC||new (window.AudioContext||window.webkitAudioContext)();const b=AC.createBuffer(1,AC.sampleRate*d,AC.sampleRate),x=b.getChannelData(0);for(let i=0;i<x.length;i++)x[i]=(Math.random()*2-1)*(1-i/x.length)**3;
   const s=AC.createBufferSource(),g=AC.createGain(),f=AC.createBiquadFilter();f.type='highpass';f.frequency.value=1500;g.gain.value=v;s.buffer=b;s.connect(f).connect(g).connect(AC.destination);s.start()}catch(e){}}
-function sfx(k){({card:()=>noise(.08,.25),flip:()=>noise(.12,.2),chip:()=>{tone(2400,.05,'square',.04);tone(3100,.06,'square',.03,.03)},tick:()=>tone(900,.03,'square',.04),err:()=>tone(150,.15,'sawtooth',.08,0,110),
+function sfx(k){({card:()=>noise(.08,.25),flip:()=>noise(.12,.2),clack:()=>{tone(2600,.035,'square',.05);tone(1800,.05,'triangle',.06,.02);noise(.04,.12)},chip:()=>{tone(2400,.05,'square',.04);tone(3100,.06,'square',.03,.03)},tick:()=>tone(900,.03,'square',.04),err:()=>tone(150,.15,'sawtooth',.08,0,110),
   win:()=>[660,880,1100].forEach((f,i)=>tone(f,.15,'triangle',.1,i*.08)),bj:()=>[523,659,784,1046,1318].forEach((f,i)=>tone(f,.2,'triangle',.12,i*.08)),lose:()=>tone(300,.4,'sine',.1,0,150),bust:()=>tone(200,.3,'sawtooth',.07,0,90)})[k]?.()}
 function vib(p){try{navigator.vibrate&&navigator.vibrate(p)}catch(e){}}
 
@@ -217,5 +265,5 @@ if(!st.tut)tutorial();else if(st.bal<MIN)gameOver();
 if('serviceWorker' in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('sw.js').catch(()=>{});
 // test hook
 const parse=s=>{const m=s.match(/^(10|[2-9AJQK])([SHDC])$/);return{r:m[1]==='A'?1:m[1]==='J'?11:m[1]==='Q'?12:m[1]==='K'?13:+m[1],s:'SHDC'.indexOf(m[2])}};
-window.__bj={force:a=>{forced=a.map(parse)},get st(){return st},get phase(){return phase},get hands(){return hands},get dealer(){return dealer},setBets:b=>{bets=Object.assign({main:0,pair:0,ties:0,match:0,sbj:0},b);renderBets()},fast:v=>FAST=v,total};
+window.__bj={force:a=>{forced=a.map(parse)},get st(){return st},get phase(){return phase},get hands(){return hands},get dealer(){return dealer},setBets:b=>{bets=Object.assign({main:0,pair:0,ties:0,match:0,sbj:0},b);renderBets()},fast:v=>FAST=v,total,get bets(){return bets},get stacks(){return stacks},get banner(){return lastBanner},outcome};
 })();
