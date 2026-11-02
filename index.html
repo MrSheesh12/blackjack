@@ -1,9 +1,9 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="theme-color" content="#0b3d22"><meta name="apple-mobile-web-app-capable" content="yes">
-<title>Suited Blackjack</title><link rel="manifest" href="manifest.json"><link rel="icon" href="icon.svg"><link rel="apple-touch-icon" href="icon.svg">
+<title>Landon&rsquo;s Casino</title><meta name="apple-mobile-web-app-title" content="Landon&rsquo;s Casino"><link rel="manifest" href="manifest.json"><link rel="icon" href="icon.svg"><link rel="apple-touch-icon" href="icon.svg">
 <link rel="stylesheet" href="style.css"></head><body>
-<header><div class="bal">💰 <b id="bal">$500</b></div><div id="last" class="last"></div>
+<header><div class="bal">💰 <b id="bal">$500</b></div><div class="hmid"><div class="logo"><span class="lg">♠</span> Landon&rsquo;s Casino</div><div id="last" class="last"></div></div>
 <button class="ib" id="bHelp" aria-label="Rules">?</button><button class="ib" id="bHist" aria-label="History">📊</button><button class="ib" id="bMute" aria-label="Sound">🔊</button><button class="ib" id="bSet" aria-label="Settings">⚙️</button></header>
 <main id="table">
  <div class="zone"><div class="lbl">Dealer <span id="dTot" class="tot"></span></div><div id="dealer" class="cards"></div></div>
@@ -13,7 +13,7 @@
  <div id="banner"></div>
 </main>
 <section id="ctrl">
- <div id="felt"><div class="rail"></div><div class="layout"><div class="spot l2" data-b="match"><div class="ring"><div class="stack"></div><b>$0</b><button class="minus" aria-label="Remove chip">−</button></div><span class="nm">Perfect Matches</span></div><div class="spot l1" data-b="pair"><div class="ring"><div class="stack"></div><b>$0</b><button class="minus" aria-label="Remove chip">−</button></div><span class="nm">Suited Pair</span></div><div class="spot main" data-b="main"><div class="ring"><div class="stack"></div><b>$0</b><button class="minus" aria-label="Remove chip">−</button></div><span class="nm">BET</span></div><div class="spot r1" data-b="ties"><div class="ring"><div class="stack"></div><b>$0</b><button class="minus" aria-label="Remove chip">−</button></div><span class="nm">Suited Ties</span></div><div class="spot r2" data-b="sbj"><div class="ring"><div class="stack"></div><b>$0</b><button class="minus" aria-label="Remove chip">−</button></div><span class="nm">Suited BJ</span></div></div></div>
+ <div id="felt"><div class="rail"></div><div class="layout"><div class="spot l1" data-b="dm"><div class="ring"><div class="stack"></div><b>$0</b><button class="minus" aria-label="Remove chip">−</button></div><span class="nm">Dealer Match<small>vs Dealer's card</small></span></div><div class="spot main" data-b="main"><div class="ring"><div class="stack"></div><b>$0</b><button class="minus" aria-label="Remove chip">−</button></div><span class="nm">BET<small></small></span></div><div class="spot r1" data-b="hm"><div class="ring"><div class="stack"></div><b>$0</b><button class="minus" aria-label="Remove chip">−</button></div><span class="nm">Hand Match<small>vs Your card</small></span></div></div></div>
  <div id="betArea">
   <div class="tbar"><span id="hint">Main bet min $5 · side bets $1+</span><span>Total bet <b id="tBet">$0</b></span></div>
   <div class="rack" id="rack"><button class="chip pc c1" data-v="1"><i>1</i></button><button class="chip pc c5 sel" data-v="5"><i>5</i></button><button class="chip pc c10" data-v="10"><i>10</i></button><button class="chip pc c25" data-v="25"><i>25</i></button><button class="chip pc c50" data-v="50"><i>50</i></button><button class="chip pc c100" data-v="100"><i>100</i></button><button class="chip pc c500" data-v="500"><i>500</i></button></div>
